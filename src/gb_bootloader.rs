@@ -60,6 +60,34 @@ struct TimePoint {
     year: u8, // offset from 1970
 }
 
+fn is_game_filename(bytes: &[u8]) -> bool {
+    let Some(end) = bytes.iter().position(|&b| b == 0) else {
+        return false;
+    };
+    if !(4..=12).contains(&end) {
+        return false;
+    }
+
+    let name = &bytes[..end];
+    let Some(dot) = name.iter().rposition(|&b| b == b'.') else {
+        return false;
+    };
+    if dot == 0 || dot > 8 {
+        return false;
+    }
+
+    let base_name = &name[..dot];
+    let ext = &name[dot + 1..];
+    if !base_name
+        .iter()
+        .all(|&b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'~'))
+    {
+        return false;
+    }
+
+    ext.eq_ignore_ascii_case(b"GB") || ext.eq_ignore_ascii_case(b"GBC")
+}
+
 pub struct GbBootloader<
     'a,
     'd,
@@ -255,23 +283,38 @@ where
                     if current_color == colors.len() {
                         current_color = 0;
                     }
+
+                    let game_name_mem = &self.gb_ram_memory[0x1000..0x1011];
+                    if is_game_filename(game_name_mem) {
+                        game_name_cstr =
+                            unsafe { CStr::from_ptr(game_name_mem.as_ptr() as *const c_char) };
+                        info!(
+                            "Selected game from RAM: {}",
+                            game_name_cstr.to_str().unwrap()
+                        );
+                        break;
+                    }
                 }
                 Either::Second(addr) => {
                     let data = (self.rx_fifo.wait_pull().await & 0xFFu32) as u8;
 
                     info!("Addr {:#x} data {:#x}", addr, data);
 
-                    if addr == 0x6000u32 {
+                    if addr & 0xE000u32 == 0x6000u32 {
                         match data {
                             42 => {
                                 let game_name_mem = &mut self.gb_ram_memory[0x1000..0x1011];
-                                info!("game_name_mem {}", game_name_mem);
-                                game_name_cstr = unsafe {
-                                    CStr::from_ptr(game_name_mem.as_ptr() as *const c_char)
-                                };
-                                info!("Selected game: {}", game_name_cstr.to_str().unwrap());
+                                if is_game_filename(game_name_mem) {
+                                    info!("game_name_mem {}", game_name_mem);
+                                    game_name_cstr = unsafe {
+                                        CStr::from_ptr(game_name_mem.as_ptr() as *const c_char)
+                                    };
+                                    info!("Selected game: {}", game_name_cstr.to_str().unwrap());
 
-                                break;
+                                    break;
+                                }
+
+                                warn!("Ignoring start command without a valid selected game name");
                             }
                             0x0c => {
                                 info!("RTC Read command");

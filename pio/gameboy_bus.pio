@@ -20,7 +20,7 @@
     out  pindirs 8                             ; start driving the data bus
     wait 0 pin 0                        ; wait for clk
     mov  osr null
-    wait 1 pin 0[3]                     ; wait for clk
+    wait 1 pin 0[15]                    ; hold data longer for Chromatic's sample window
     out  pindirs 8                          ; stop driving the data bus
     .wrap ; wrap back to beginning
 
@@ -31,7 +31,8 @@ a14_high:
 .wrap_target
     wait 0 pin 14  ; wait for clk to become low
 public entry_point:
-    wait 1 pin 14 [2] ; wait for clk to become high
+    wait 1 pin 14 [31] ; wait for clk to become high
+    nop [24] ; let Chromatic update the external addr bus
     mov  isr null
     in pins 1 ; shift in a15
     mov y isr ; store a15 pin in y
@@ -75,7 +76,8 @@ on_write:
 .wrap_target
 public entry_point:
     wait 1 pin 29 [1]                    ; wait for clk cycle to end
-    wait 0 pin 15 [1] ; wait for a15 to become low
+    wait 0 pin 15 [31] ; wait for a15 to become low
+    nop [24] ; let Chromatic update addr/rd before classifying writes
     jmp pin on_write ; on reads back to idle
     wait 0 pin 29 ; wait for clk to become low
     .wrap ; wrap back to beginning
